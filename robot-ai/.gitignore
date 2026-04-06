@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+*.env
+
+# Models (large files — don't commit, use LFS or HF Hub)
+*.pt
+*.engine
+*.onnx
+*.zip
+yolov8n.pt
+yolov8m.pt
+
+# Datasets (large — download locally, don't commit)
+datasets/pothole/
+datasets/cow/
+datasets/auto_rickshaw/
+datasets/combined/
+datasets/jalgaon_frames/
+
+# Logs & TensorBoard
+logs/
+runs/
+*.log
+
+# Training checkpoints
+models/navigation/nav_ppo_*
+models/navigation/best/
+
+# macOS
+.DS_Store
+
+# JetBrains / VS Code
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Misc
+*.csv
+*.jpg
+*.png
+prediction_output/
+temp_image.jpg

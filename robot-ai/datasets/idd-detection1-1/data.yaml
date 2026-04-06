@@ -1,0 +1,34 @@
+names:
+- 16-Wheelers
+- Ad-signs
+- Bike
+- Bus
+- Car
+- D00
+- D01
+- D10
+- D11
+- D20
+- D40
+- D43
+- D44
+- D50
+- Lamb-post
+- MiniBus
+- Motorcycle
+- Person
+- Pickup
+- Police-car
+- Traffic-light
+- Traffic-sign
+- Truck
+nc: 23
+roboflow:
+  license: CC BY 4.0
+  project: idd-detection1
+  url: https://universe.roboflow.com/fels-workspace-ewfpa/idd-detection1/dataset/1
+  version: 1
+  workspace: fels-workspace-ewfpa
+test: test/images
+train: train/images
+val: valid/images

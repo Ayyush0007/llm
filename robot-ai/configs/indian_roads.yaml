@@ -1,0 +1,19 @@
+path: /Users/yashmogare/robot-ai/llm/robot-ai/datasets/idd-detection1-1
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 12  # number of classes in the combined Indian road dataset
+names:
+  0: person
+  1: bicycle
+  2: motorcycle
+  3: auto_rickshaw
+  4: car
+  5: truck
+  6: bus
+  7: cow
+  8: dog
+  9: pothole
+  10: speed_bump
+  11: pedestrian_crossing
