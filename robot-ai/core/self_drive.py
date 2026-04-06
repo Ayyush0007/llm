@@ -31,11 +31,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 # ─── AI Models ────────────────────────────────────────────────────
 from ultralytics import YOLO
-from core.depth_ai      import DepthAI
-from core.sensor_fusion import SensorFusion
-from core.state_machine import DrivingStateMachine, DriveState
-from core.dashboard     import Dashboard
-from core.data_logger   import DataLogger
+from core.depth_ai       import DepthAI
+from core.sensor_fusion  import SensorFusion
+from core.state_machine  import DrivingStateMachine, DriveState
+from core.dashboard      import Dashboard
+from core.data_logger    import DataLogger
+from core.lidar_sensor   import LidarSystem
+from core.lcd_display    import LCDDisplaySystem
+from core.face_recognition import FaceSystem
+from core.camera_system  import CameraSystem
+from core.horn_system    import HornSystem, HornPattern
 
 # ─── Config ───────────────────────────────────────────────────────
 CARLA_HOST     = "localhost"
@@ -53,6 +58,10 @@ DEPTH_SIZE     = "small"            # "small"=fast, "base"=balanced, "large"=bes
 
 ENABLE_DASHBOARD = True
 ENABLE_LOGGING   = True
+ENABLE_LIDAR     = True
+ENABLE_LCD       = True
+ENABLE_FACE      = True
+ENABLE_HORN      = True
 
 # ─── CARLA imports (graceful if not installed) ────────────────────
 try:
@@ -81,6 +90,22 @@ class SelfDriveSystem:
         self.fsm      = DrivingStateMachine()
         self.dashboard = Dashboard() if ENABLE_DASHBOARD else None
         self.logger    = DataLogger()  if ENABLE_LOGGING   else None
+
+        print("📡 Loading LiDAR system...")
+        self.lidar    = LidarSystem(mode="carla") if ENABLE_LIDAR else None
+
+        print("📟 Loading LCD display...")
+        self.lcd      = LCDDisplaySystem(mode="mock") if ENABLE_LCD else None
+
+        print("👤 Loading Face Recognition...")
+        self.faces    = FaceSystem(db_path="known_faces/", mode="detect") if ENABLE_FACE else None
+
+        print("📷 Loading Multi-Camera system...")
+        self.cameras  = CameraSystem(mode="carla", width=640, height=480)
+
+        print("📢 Loading Horn system...")
+        self.horn     = HornSystem(mode="pygame") if ENABLE_HORN else None
+        self._prev_state = DriveState.IDLE
 
         # ── CARLA state ─────────────────────────────────────────
         self._client   = None
@@ -115,6 +140,13 @@ class SelfDriveSystem:
             self.logger.close()
         if self.dashboard:
             self.dashboard.close()
+        if self.lcd:
+            self.lcd.shutdown()
+        if self.horn:
+            self.horn.shutdown()
+        self.cameras.stop_all()
+        if self.lidar:
+            self.lidar.destroy()
         print("🛑 Self-drive system stopped.")
 
     # ─── CARLA Setup ──────────────────────────────────────────────
@@ -210,15 +242,51 @@ class SelfDriveSystem:
                 timestamp  = time.time(),
             )
 
+            # 5a. LiDAR scan — supplement sensor fusion
+            lidar_scan = None
+            if self.lidar:
+                lidar_scan = self.lidar.get_scan()
+                if lidar_scan and lidar_scan.front_min < 0.5:
+                    # Override center depth with accurate lidar reading
+                    world.depth_center = min(
+                        world.depth_center,
+                        lidar_scan.front_min / 15.0   # normalise to [0,1]
+                    )
+                    world.danger_center = max(world.danger_center, 0.8)
+
+            # 5b. Face recognition on front frame
+            face_result = None
+            if self.faces:
+                face_result = self.faces.process(frame)
+                if face_result.known_count > 0 and self.horn:
+                    self.horn.beep()   # acknowledge a known person
+
             # 5. State machine → DriveCommand
             cmd = self.fsm.tick(world)
 
             # 6. Apply command to CARLA (or hardware)
             self._apply_command(cmd)
 
+            # 6b. Horn auto-trigger
+            if self.horn:
+                self.horn.handle_world_events(world, self._prev_state, cmd.state)
+            self._prev_state = cmd.state
+
             # 7. Log
             if self.logger:
                 self.logger.log(world, cmd)
+
+            # 7b. LCD update (every 5 frames to save I2C bandwidth)
+            if self.lcd and world.frame_id % 5 == 0:
+                lidar_front = lidar_scan.front_min if lidar_scan else 99.0
+                det_names   = [d.cls for d in world.detections]
+                self.lcd.update(
+                    state      = cmd.state,
+                    speed      = cmd.throttle,
+                    danger     = world.danger_center,
+                    detections = det_names,
+                    lidar_front= lidar_front,
+                )
 
             # 8. Dashboard HUD
             if self.dashboard:
