@@ -42,6 +42,20 @@ from core.face_recognition import FaceSystem
 from core.camera_system  import CameraSystem
 from core.horn_system    import HornSystem, HornPattern
 
+# ─── New India-Specific Sensors ───────────────────────────────────
+from core.imu_sensor           import IMUSensor
+from core.gps_sensor           import GPSSensor
+from core.ultrasonic_sensor    import UltrasonicArray
+from core.microphone_sensor    import MicrophoneSensor
+from core.rain_light_sensor    import RainLightSensor
+from core.wheel_encoder        import WheelEncoder
+from core.thermal_camera       import ThermalCamera
+from core.air_quality_sensor   import AirQualitySensor
+from core.battery_monitor      import BatteryMonitor
+from core.cliff_sensor         import CliffSensor
+from core.temp_humidity_sensor import TempHumiditySensor
+
+
 # ─── Config ───────────────────────────────────────────────────────
 CARLA_HOST     = "localhost"
 CARLA_PORT     = 2000
@@ -105,6 +119,21 @@ class SelfDriveSystem:
 
         print("📢 Loading Horn system...")
         self.horn     = HornSystem(mode="pygame") if ENABLE_HORN else None
+        
+        # ── India-Specific Sensors ──
+        print("🇮🇳 Loading 11 India-specific sensors...")
+        self.imu         = IMUSensor(mode="mock")
+        self.gps         = GPSSensor(mode="mock")
+        self.ultrasonic  = UltrasonicArray(mode="mock")
+        self.mic         = MicrophoneSensor(mode="mock")
+        self.rain_light  = RainLightSensor(mode="mock")
+        self.encoder     = WheelEncoder(mode="mock")
+        self.thermal     = ThermalCamera(mode="mock")
+        self.air_quality = AirQualitySensor(mode="mock")
+        self.battery     = BatteryMonitor(mode="mock")
+        self.cliff       = CliffSensor(mode="mock")
+        self.temp_humid  = TempHumiditySensor(mode="mock")
+        
         self._prev_state = DriveState.IDLE
 
         # ── CARLA state ─────────────────────────────────────────
@@ -147,6 +176,20 @@ class SelfDriveSystem:
         self.cameras.stop_all()
         if self.lidar:
             self.lidar.destroy()
+            
+        # Stop new sensors
+        self.imu.stop()
+        self.gps.stop()
+        self.ultrasonic.stop()
+        self.mic.stop()
+        self.rain_light.stop()
+        self.encoder.stop()
+        self.thermal.stop()
+        self.air_quality.stop()
+        self.battery.stop()
+        self.cliff.stop()
+        self.temp_humid.stop()
+        
         print("🛑 Self-drive system stopped.")
 
     # ─── CARLA Setup ──────────────────────────────────────────────
@@ -253,6 +296,39 @@ class SelfDriveSystem:
                         lidar_scan.front_min / 15.0   # normalise to [0,1]
                     )
                     world.danger_center = max(world.danger_center, 0.8)
+
+            # 5b. Update simulated sensors if in CARLA
+            if CARLA_AVAILABLE and self._vehicle:
+                weather = self._world.get_weather()
+                self.imu.update_from_carla(self._vehicle)
+                self.gps.update_from_carla(self._vehicle)
+                self.encoder.update_from_carla(self._vehicle)
+                self.air_quality.update_from_carla(weather)
+                self.battery.update_from_carla(self._vehicle)
+                self.cliff.update_from_carla(self._vehicle, None)
+                self.temp_humid.update_from_carla(weather)
+                self.thermal.update_from_depth(depth_map)
+
+            # 5c. Hard Failsafes (India-specific overrides) before State Machine
+            batt_reading = self.battery.get()
+            temp_reading = self.temp_humid.get()
+            cliff_reading = self.cliff.get()
+            
+            # Emergency Cliff Drop-Off (e.g., Manhole)
+            if cliff_reading.cliff_detected:
+                world.danger_center = 1.0  # Instant stop
+                print(f"⚠️  CLIFF/EDGE DETECTED! Stopping safely!")
+                if self.horn: self.horn.beep()
+                
+            # Emergency Overheat
+            if temp_reading.state.name == "CRITICAL":
+                world.danger_center = 1.0
+                print(f"⚠️  CRITICAL OVERHEAT! Jetson Temp: {temp_reading.cpu_temp_c}°C. Halting!")
+
+            # Emergency Battery Drain
+            if batt_reading.state.name == "CRITICAL" or batt_reading.motor_stall:
+                world.danger_center = 1.0
+                print(f"⚠️  BATTERY CRITICAL / MOTOR STALL! Current: {batt_reading.current_a}A")
 
             # 5b. Face recognition on front frame
             face_result = None
